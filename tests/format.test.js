@@ -31,13 +31,13 @@ test('formatFees explains a zero low fee', () => {
   assert.match(text, /A low fee of 0 means/);
 });
 
-test('formatAccountFees describes a single account and labels the result as a floor', () => {
+test('formatAccountFees describes a single account, the window and labels the result as a floor', () => {
   const summary = summarizeAccountFees(accountSamples([0, 0, 100, 200, 300, 400, 500, 600, 700, 800]));
   const text = formatAccountFees(summary, 'rpc.example.com', 1);
   assert.match(text, /Priority fee floor for 1 account\b/);
   assert.match(text, /low\s+60\s+300/);
   assert.match(text, /Lamports per transaction assume a 200,000 compute unit limit/);
-  assert.match(text, /Based on 10 recent slots \(10 to 19\) via rpc\.example\.com\./);
+  assert.match(text, /Based on 10 recent slots \(10 to 19, about 4 seconds\) via rpc\.example\.com\./);
   assert.match(text, /locks this account as writable/);
   assert.match(text, /50th, 75th and 90th percentile/);
   assert.match(text, /a floor for getting in, not a bid to win/);

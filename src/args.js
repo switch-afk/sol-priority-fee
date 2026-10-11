@@ -1,6 +1,9 @@
 'use strict';
 
 const MAX_UNITS = 1400000;
+const DEFAULT_INTERVAL = 10;
+const MIN_INTERVAL = 5;
+const MAX_INTERVAL = 3600;
 
 function parseArgs(argv) {
   const opts = {
@@ -10,6 +13,7 @@ function parseArgs(argv) {
     watch: false,
     rpc: null,
     units: null,
+    interval: null,
     accounts: [],
     errors: [],
   };
@@ -25,7 +29,7 @@ function parseArgs(argv) {
       opts.json = true;
     } else if (arg === '--watch') {
       opts.watch = true;
-    } else if (arg === '--rpc' || arg === '--account' || arg === '--units') {
+    } else if (arg === '--rpc' || arg === '--account' || arg === '--units' || arg === '--interval') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) {
         opts.errors.push(`${arg} needs a value`);
@@ -35,12 +39,21 @@ function parseArgs(argv) {
           opts.rpc = value;
         } else if (arg === '--account') {
           opts.accounts.push(value);
-        } else {
+        } else if (arg === '--units') {
           const units = Number(value);
           if (/^\d+$/.test(value) && units >= 1 && units <= MAX_UNITS) {
             opts.units = units;
           } else {
             opts.errors.push(`--units must be a whole number between 1 and ${MAX_UNITS}`);
+          }
+        } else {
+          const seconds = Number(value);
+          if (/^\d+$/.test(value) && seconds >= MIN_INTERVAL && seconds <= MAX_INTERVAL) {
+            opts.interval = seconds;
+          } else {
+            opts.errors.push(
+              `--interval must be a whole number of seconds between ${MIN_INTERVAL} and ${MAX_INTERVAL}`,
+            );
           }
         }
       }
@@ -49,7 +62,11 @@ function parseArgs(argv) {
     }
   }
 
+  if (opts.interval !== null && !opts.watch) {
+    opts.errors.push('--interval only works with --watch');
+  }
+
   return opts;
 }
 
-module.exports = { parseArgs, MAX_UNITS };
+module.exports = { parseArgs, MAX_UNITS, DEFAULT_INTERVAL, MIN_INTERVAL, MAX_INTERVAL };
