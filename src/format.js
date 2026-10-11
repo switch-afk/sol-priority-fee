@@ -1,6 +1,7 @@
 'use strict';
 
 const LEVEL_NAMES = ['low', 'medium', 'high'];
+const SLOT_SECONDS = 0.4;
 
 function formatInt(n) {
   return Number(n).toLocaleString('en-US');
@@ -46,10 +47,13 @@ function formatFees(summary, host) {
 function formatAccountFees(summary, host, accountCount) {
   const { levels, sampleCount, slotRange, computeUnits } = summary;
   const single = accountCount === 1;
+  const seconds = Math.max(1, Math.round(sampleCount * SLOT_SECONDS));
 
   const lines = [`Priority fee floor for ${accountCount} ${single ? 'account' : 'accounts'}`, '', ...levelTable(levels), ''];
   lines.push(`Lamports per transaction assume a ${formatInt(computeUnits)} compute unit limit (change it with --units).`);
-  lines.push(`Based on ${formatInt(sampleCount)} recent slots (${slotRange.from} to ${slotRange.to}) via ${host}.`);
+  lines.push(
+    `Based on ${formatInt(sampleCount)} recent slots (${slotRange.from} to ${slotRange.to}, about ${seconds} seconds) via ${host}.`,
+  );
   lines.push(
     `For each slot the RPC reports the fee needed to land a transaction that locks ` +
       `${single ? 'this account' : 'all of these accounts'} as writable.`,

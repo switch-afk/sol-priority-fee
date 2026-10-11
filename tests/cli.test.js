@@ -8,6 +8,7 @@ const { createMockRpc } = require('./helpers/mock-rpc');
 const { fakeAddress } = require('./helpers/base58');
 
 const noWait = async () => {};
+const now = () => new Date('2026-10-11T12:00:00.000Z');
 const PAID = [0, 0, 0, 100, 200, 300, 400, 500, 600, 1000];
 const FLOOR_FEES = [0, 0, 100, 200, 300, 400, 500, 600, 700, 800];
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -20,6 +21,20 @@ function capture() {
     io: {
       out: (text) => lines.out.push(text),
       err: (text) => lines.err.push(text),
+    },
+  };
+}
+
+// Stand-in for the watch delay: returns at once and aborts the loop after `count` waits.
+function stopAfter(count) {
+  const controller = new AbortController();
+  const waits = [];
+  return {
+    signal: controller.signal,
+    waits,
+    waitImpl: async (ms) => {
+      waits.push(ms);
+      if (waits.length >= count) controller.abort();
     },
   };
 }
@@ -58,9 +73,11 @@ test('--help prints usage and exits 0', async () => {
   const { lines, io } = capture();
   const code = await run(['--help'], io);
   assert.equal(code, 0);
-  assert.match(lines.out.join('\n'), /Usage:/);
-  assert.match(lines.out.join('\n'), /--units/);
-  assert.match(lines.out.join('\n'), /--account/);
+  const out = lines.out.join('\n');
+  assert.match(out, /Usage:/);
+  assert.match(out, /--units/);
+  assert.match(out, /--account/);
+  assert.match(out, /--interval/);
 });
 
 test('--version prints the package version', async () => {
@@ -76,6 +93,13 @@ test('unknown option exits 2 with a hint', async () => {
   assert.equal(code, 2);
   assert.match(lines.err.join('\n'), /unknown option: --nope/);
   assert.match(lines.err.join('\n'), /--help/);
+});
+
+test('--interval without --watch exits 2', async () => {
+  const { lines, io } = capture();
+  const code = await run(['--interval', '30'], io);
+  assert.equal(code, 2);
+  assert.match(lines.err.join('\n'), /--interval only works with --watch/);
 });
 
 test('prints low, medium and high from what recent transactions paid', async () => {
@@ -144,13 +168,6 @@ test('rate limiting exits 1 with the own-RPC hint', async () => {
   assert.match(err, /SOL_PRIORITY_FEE_RPC/);
 });
 
-test('options that are not built yet are refused clearly', async () => {
-  const { lines, io } = capture();
-  const code = await run(['--json', '--watch'], io, { env: {} });
-  assert.equal(code, 2);
-  assert.match(lines.err.join('\n'), /--json, --watch not available yet/);
-});
-
 test('--account shows the fee floor for the account and skips block sampling', async () => {
   const fetchImpl = createMockRpc(floorRoutes());
   const { lines, io } = capture();
@@ -214,4 +231,104 @@ test('--account works with --units', async () => {
   const out = lines.out.join('\n');
   assert.match(out, /low\s+30\s+300/);
   assert.match(out, /assume a 100,000 compute unit limit/);
+});
+
+test('--json prints one pretty JSON object', async () => {
+  const fetchImpl = createMockRpc(feeRoutes());
+  const { lines, io } = capture();
+  const code = await run(['--json'], io, { env: {}, fetchImpl, now });
+  assert.equal(code, 0);
+  assert.equal(lines.out.length, 1);
+  assert.match(lines.out[0], /\n {2}"mode"/);
+  const data = JSON.parse(lines.out[0]);
+  assert.equal(data.mode, 'recent-transactions');
+  assert.equal(data.rpc, 'api.mainnet-beta.solana.com');
+  assert.equal(data.time, '2026-10-11T12:00:00.000Z');
+  assert.equal(data.levels.low.lamports, 200);
+  assert.equal(data.levels.high.microLamportsPerUnit, 3000);
+});
+
+test('--json with --account prints the account floor', async () => {
+  const fetchImpl = createMockRpc(floorRoutes());
+  const { lines, io } = capture();
+  const code = await run(['--json', '--account', TOKEN_PROGRAM], io, { env: {}, fetchImpl, now });
+  assert.equal(code, 0);
+  const data = JSON.parse(lines.out[0]);
+  assert.equal(data.mode, 'account-floor');
+  assert.deepEqual(data.accounts, [TOKEN_PROGRAM]);
+  assert.equal(data.levels.medium.microLamportsPerUnit, 600);
+});
+
+test('--watch refreshes until stopped and shows when it updated', async () => {
+  const fetchImpl = createMockRpc(feeRoutes());
+  const stop = stopAfter(2);
+  const { lines, io } = capture();
+  const code = await run(['--watch'], io, {
+    env: {},
+    fetchImpl,
+    now,
+    signal: stop.signal,
+    waitImpl: stop.waitImpl,
+  });
+  assert.equal(code, 0);
+  const out = lines.out.join('\n');
+  assert.equal(out.match(/Updated 12:00:00 UTC/g).length, 2);
+  assert.equal(out.match(/Priority fee recommendation/g).length, 2);
+  assert.deepEqual(stop.waits, [10000, 10000]);
+  assert.equal(fetchImpl.calls.filter((call) => call.method === 'getSlot').length, 2);
+});
+
+test('--watch --interval sets the delay between refreshes', async () => {
+  const fetchImpl = createMockRpc(feeRoutes());
+  const stop = stopAfter(1);
+  const { io } = capture();
+  const code = await run(['--watch', '--interval', '30'], io, {
+    env: {},
+    fetchImpl,
+    now,
+    signal: stop.signal,
+    waitImpl: stop.waitImpl,
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(stop.waits, [30000]);
+});
+
+test('--watch --json prints one compact JSON object per refresh', async () => {
+  const fetchImpl = createMockRpc(feeRoutes());
+  const stop = stopAfter(2);
+  const { lines, io } = capture();
+  const code = await run(['--watch', '--json'], io, {
+    env: {},
+    fetchImpl,
+    now,
+    signal: stop.signal,
+    waitImpl: stop.waitImpl,
+  });
+  assert.equal(code, 0);
+  assert.equal(lines.out.length, 2);
+  for (const line of lines.out) {
+    assert.doesNotMatch(line, /\n/);
+    assert.equal(JSON.parse(line).mode, 'recent-transactions');
+  }
+});
+
+test('--watch keeps going after a failed refresh', async () => {
+  const fetchImpl = createMockRpc({
+    ...feeRoutes(),
+    getSlot: [{ status: 429 }, { status: 429 }, { status: 429 }, { result: 1000 }],
+  });
+  const stop = stopAfter(2);
+  const { lines, io } = capture();
+  const code = await run(['--watch'], io, {
+    env: {},
+    fetchImpl,
+    sleepImpl: noWait,
+    now,
+    signal: stop.signal,
+    waitImpl: stop.waitImpl,
+  });
+  assert.equal(code, 0);
+  assert.match(lines.err.join('\n'), /rate-limiting/);
+  assert.match(lines.err.join('\n'), /SOL_PRIORITY_FEE_RPC/);
+  assert.match(lines.out.join('\n'), /Priority fee recommendation/);
 });

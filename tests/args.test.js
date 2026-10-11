@@ -11,6 +11,7 @@ test('no arguments gives defaults', () => {
   assert.equal(opts.watch, false);
   assert.equal(opts.rpc, null);
   assert.equal(opts.units, null);
+  assert.equal(opts.interval, null);
   assert.deepEqual(opts.accounts, []);
   assert.deepEqual(opts.errors, []);
 });
@@ -38,6 +39,7 @@ test('missing value is reported', () => {
   assert.deepEqual(parseArgs(['--rpc']).errors, ['--rpc needs a value']);
   assert.deepEqual(parseArgs(['--account', '--json']).errors, ['--account needs a value']);
   assert.deepEqual(parseArgs(['--units']).errors, ['--units needs a value']);
+  assert.deepEqual(parseArgs(['--watch', '--interval']).errors, ['--interval needs a value']);
 });
 
 test('--units accepts a whole number of compute units', () => {
@@ -51,4 +53,23 @@ test('--units rejects invalid values', () => {
   assert.deepEqual(parseArgs(['--units', 'abc']).errors, [message]);
   assert.deepEqual(parseArgs(['--units', '0']).errors, [message]);
   assert.deepEqual(parseArgs(['--units', '2000000']).errors, [message]);
+});
+
+test('--interval accepts whole seconds with --watch, in either order', () => {
+  assert.equal(parseArgs(['--watch', '--interval', '30']).interval, 30);
+  const reversed = parseArgs(['--interval', '30', '--watch']);
+  assert.equal(reversed.interval, 30);
+  assert.deepEqual(reversed.errors, []);
+});
+
+test('--interval rejects invalid values', () => {
+  const message = '--interval must be a whole number of seconds between 5 and 3600';
+  assert.deepEqual(parseArgs(['--watch', '--interval', 'abc']).errors, [message]);
+  assert.deepEqual(parseArgs(['--watch', '--interval', '4']).errors, [message]);
+  assert.deepEqual(parseArgs(['--watch', '--interval', '3601']).errors, [message]);
+  assert.deepEqual(parseArgs(['--watch', '--interval', '1.5']).errors, [message]);
+});
+
+test('--interval without --watch is reported', () => {
+  assert.deepEqual(parseArgs(['--interval', '30']).errors, ['--interval only works with --watch']);
 });

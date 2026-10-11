@@ -13,6 +13,7 @@ const {
   lamportsForPrice,
 } = require('./fees');
 const { formatFees, formatAccountFees } = require('./format');
+const { blocksToJson, accountToJson } = require('./json');
 
 module.exports = {
   rpcCall,
@@ -31,4 +32,6 @@ module.exports = {
   lamportsForPrice,
   formatFees,
   formatAccountFees,
+  blocksToJson,
+  accountToJson,
 };
