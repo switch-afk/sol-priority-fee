@@ -2,8 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { summarizeFees } = require('../src/fees');
-const { formatFees } = require('../src/format');
+const { summarizeFees, summarizeAccountFees } = require('../src/fees');
+const { formatFees, formatAccountFees } = require('../src/format');
+
+function accountSamples(fees) {
+  return fees.map((fee, i) => ({ slot: 10 + i, prioritizationFee: fee }));
+}
 
 test('formatFees shows the three levels, per-CU prices and the source', () => {
   const summary = summarizeFees({
@@ -25,4 +29,25 @@ test('formatFees explains a zero low fee', () => {
   const text = formatFees(summary, 'rpc.example.com');
   assert.match(text, /in 2 recent blocks/);
   assert.match(text, /A low fee of 0 means/);
+});
+
+test('formatAccountFees describes a single account and labels the result as a floor', () => {
+  const summary = summarizeAccountFees(accountSamples([0, 0, 100, 200, 300, 400, 500, 600, 700, 800]));
+  const text = formatAccountFees(summary, 'rpc.example.com', 1);
+  assert.match(text, /Priority fee floor for 1 account\b/);
+  assert.match(text, /low\s+60\s+300/);
+  assert.match(text, /Lamports per transaction assume a 200,000 compute unit limit/);
+  assert.match(text, /Based on 10 recent slots \(10 to 19\) via rpc\.example\.com\./);
+  assert.match(text, /locks this account as writable/);
+  assert.match(text, /50th, 75th and 90th percentile/);
+  assert.match(text, /a floor for getting in, not a bid to win/);
+  assert.doesNotMatch(text, /A low fee of 0/);
+});
+
+test('formatAccountFees describes several accounts and explains a zero low fee', () => {
+  const summary = summarizeAccountFees(accountSamples([0, 0, 0, 0]));
+  const text = formatAccountFees(summary, 'rpc.example.com', 3);
+  assert.match(text, /Priority fee floor for 3 accounts/);
+  assert.match(text, /locks all of these accounts as writable/);
+  assert.match(text, /A low fee of 0 means at least half of the recent slots needed no priority fee for these accounts\./);
 });
