@@ -1,0 +1,27 @@
+{
+  "name": "sol-priority-fee",
+  "version": "0.1.0",
+  "description": "Recommended Solana priority fee from recent network data (zero-dependency CLI)",
+  "bin": {
+    "sol-priority-fee": "bin/sol-priority-fee.js"
+  },
+  "main": "src/index.js",
+  "files": [
+    "bin",
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "solana",
+    "priority-fee",
+    "compute-budget",
+    "cli"
+  ],
+  "author": "Sybi",
+  "license": "MIT"
+}
