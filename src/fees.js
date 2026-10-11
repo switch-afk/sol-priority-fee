@@ -98,6 +98,19 @@ async function sampleRecentFees(endpoint, options = {}) {
   return { fees, slots: blocks.map((block) => block.slot), voteCount, unreadable };
 }
 
+// Per-slot fee reported by the RPC for landing a transaction that locks all of
+// the given accounts as writable.
+async function fetchAccountFees(endpoint, accounts, rpcOptions = {}) {
+  const result = await rpcCall(endpoint, 'getRecentPrioritizationFees', [accounts], rpcOptions);
+  if (!Array.isArray(result)) return [];
+  return result.filter(
+    (sample) =>
+      sample &&
+      Number.isFinite(sample.slot) &&
+      Number.isFinite(sample.prioritizationFee),
+  );
+}
+
 // Nearest-rank percentile on an ascending sorted array.
 function percentile(sortedAsc, p) {
   if (sortedAsc.length === 0) return null;
@@ -109,6 +122,11 @@ function percentile(sortedAsc, p) {
 // `units` has a compute unit price of lamports * 1e6 / units micro-lamports.
 function computePriceMicroLamports(lamports, units = DEFAULT_COMPUTE_UNITS) {
   return Math.ceil((lamports * 1e6) / units);
+}
+
+// The reverse: what a given compute unit price costs for `units` compute units.
+function lamportsForPrice(microLamportsPerUnit, units = DEFAULT_COMPUTE_UNITS) {
+  return Math.ceil((microLamportsPerUnit * units) / 1e6);
 }
 
 function summarizeFees(sample, options = {}) {
@@ -138,13 +156,43 @@ function summarizeFees(sample, options = {}) {
   };
 }
 
+function summarizeAccountFees(samples, options = {}) {
+  const computeUnits = options.computeUnits || DEFAULT_COMPUTE_UNITS;
+  if (!samples || samples.length === 0) return null;
+
+  const fees = samples.map((sample) => sample.prioritizationFee).sort((a, b) => a - b);
+  const slots = samples.map((sample) => sample.slot);
+
+  const levels = {};
+  for (const [name, p] of Object.entries(LEVEL_PERCENTILES)) {
+    const microLamportsPerUnit = percentile(fees, p);
+    levels[name] = {
+      percentile: p,
+      lamports: lamportsForPrice(microLamportsPerUnit, computeUnits),
+      microLamportsPerUnit,
+    };
+  }
+
+  return {
+    sampleCount: samples.length,
+    slotRange: { from: Math.min(...slots), to: Math.max(...slots) },
+    zeroCount: fees.filter((fee) => fee === 0).length,
+    max: fees[fees.length - 1],
+    computeUnits,
+    levels,
+  };
+}
+
 module.exports = {
   fetchRecentBlocks,
   extractPriorityFees,
   sampleRecentFees,
+  fetchAccountFees,
   percentile,
   computePriceMicroLamports,
+  lamportsForPrice,
   summarizeFees,
+  summarizeAccountFees,
   DEFAULT_COMPUTE_UNITS,
   LEVEL_PERCENTILES,
   BASE_FEE_LAMPORTS,

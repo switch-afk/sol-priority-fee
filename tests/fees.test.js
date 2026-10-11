@@ -5,9 +5,12 @@ const assert = require('node:assert/strict');
 const {
   sampleRecentFees,
   extractPriorityFees,
+  fetchAccountFees,
   summarizeFees,
+  summarizeAccountFees,
   percentile,
   computePriceMicroLamports,
+  lamportsForPrice,
 } = require('../src/fees');
 const { createMockRpc } = require('./helpers/mock-rpc');
 
@@ -54,6 +57,12 @@ test('computePriceMicroLamports converts a per-transaction fee to a per-CU price
   assert.equal(computePriceMicroLamports(447, 50000), 8940);
   assert.equal(computePriceMicroLamports(1, 200000), 5);
   assert.equal(computePriceMicroLamports(0), 0);
+});
+
+test('lamportsForPrice converts a per-CU price to a per-transaction fee and rounds up', () => {
+  assert.equal(lamportsForPrice(1000, 200000), 200);
+  assert.equal(lamportsForPrice(1, 200000), 1);
+  assert.equal(lamportsForPrice(0), 0);
 });
 
 test('extractPriorityFees skips votes and unreadable transactions and subtracts the base fee', () => {
@@ -149,4 +158,51 @@ test('sampleRecentFees lets real RPC errors through', async () => {
       return true;
     },
   );
+});
+
+test('fetchAccountFees sends the accounts and drops malformed samples', async () => {
+  const fetchImpl = createMockRpc({
+    getRecentPrioritizationFees: {
+      result: [
+        { slot: 1, prioritizationFee: 5 },
+        { slot: 'x', prioritizationFee: 1 },
+        null,
+        { slot: 2 },
+      ],
+    },
+  });
+  const samples = await fetchAccountFees(ENDPOINT, ['AccountA', 'AccountB'], { fetchImpl });
+  assert.deepEqual(samples, [{ slot: 1, prioritizationFee: 5 }]);
+  assert.equal(fetchImpl.calls[0].method, 'getRecentPrioritizationFees');
+  assert.deepEqual(fetchImpl.calls[0].params, [['AccountA', 'AccountB']]);
+
+  const bad = createMockRpc({ getRecentPrioritizationFees: { result: null } });
+  assert.deepEqual(await fetchAccountFees(ENDPOINT, ['AccountA'], { fetchImpl: bad }), []);
+});
+
+test('summarizeAccountFees returns null for no samples', () => {
+  assert.equal(summarizeAccountFees([]), null);
+  assert.equal(summarizeAccountFees(null), null);
+});
+
+test('summarizeAccountFees computes levels, lamports per transaction and the zero count', () => {
+  const fees = [800, 0, 300, 100, 600, 200, 700, 0, 500, 400];
+  const samples = fees.map((fee, i) => ({ slot: 10 + i, prioritizationFee: fee }));
+  const summary = summarizeAccountFees(samples);
+
+  assert.equal(summary.sampleCount, 10);
+  assert.deepEqual(summary.slotRange, { from: 10, to: 19 });
+  assert.equal(summary.zeroCount, 2);
+  assert.equal(summary.max, 800);
+  assert.equal(summary.computeUnits, 200000);
+  assert.equal(summary.levels.low.microLamportsPerUnit, 300);
+  assert.equal(summary.levels.medium.microLamportsPerUnit, 600);
+  assert.equal(summary.levels.high.microLamportsPerUnit, 700);
+  assert.equal(summary.levels.low.lamports, 60);
+  assert.equal(summary.levels.medium.lamports, 120);
+  assert.equal(summary.levels.high.lamports, 140);
+
+  const custom = summarizeAccountFees(samples, { computeUnits: 100000 });
+  assert.equal(custom.levels.low.lamports, 30);
+  assert.equal(custom.levels.high.lamports, 70);
 });
